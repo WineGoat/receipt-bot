@@ -1,21 +1,18 @@
 import base64
 import json
 from openai import OpenAI
-from config import GEMINI_API_KEY
+from config import OPENAI_API_KEY
 
 def process_receipt_image(image_path):
     """
-    Processes the receipt image using Gemini API.
+    Processes the receipt image using OpenAI API.
     Returns a dictionary with extracted data or None if failed.
     """
-    if not GEMINI_API_KEY:
-        return {"error": "Gemini API Key not configured"}
+    if not OPENAI_API_KEY:
+        return {"error": "OpenAI API Key not configured"}
 
     try:
-        client = OpenAI(
-            api_key=GEMINI_API_KEY,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
+        client = OpenAI(api_key=OPENAI_API_KEY)
 
         with open(image_path, "rb") as image_file:
             base64_image = base64.b64encode(image_file.read()).decode("utf-8")
@@ -50,7 +47,7 @@ To detect FAKE receipts, check for:
 Respond ONLY with the JSON object, nothing else."""
 
         response = client.chat.completions.create(
-            model="gemini-2.0-flash",
+            model="gpt-4.1-mini",
             messages=[
                 {
                     "role": "user",

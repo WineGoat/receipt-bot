@@ -16,8 +16,8 @@ if admin_id_single:
 if admin_ids_multi:
     ADMIN_IDS.extend([int(id.strip()) for id in admin_ids_multi.split(",") if id.strip()])
 
-# OCR Configuration (Gemini API via OpenAI-compatible endpoint)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# OCR Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # Database Configuration
 DB_PATH = "bot_database.db"
