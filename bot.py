@@ -22,28 +22,34 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     photo_file = await update.message.photo[-1].get_file()
     
-    # Create temp directory if not exists
     os.makedirs("temp", exist_ok=True)
     file_path = f"temp/{photo_file.file_id}.jpg"
     await photo_file.download_to_drive(file_path)
     
     status_msg = await update.message.reply_text(MESSAGES["processing"])
     
-    # Process with OCR
     data = process_receipt_image(file_path)
     
-    # Clean up temp file
     if os.path.exists(file_path):
         os.remove(file_path)
         
-    if not data or "error" in data:
+    if not data:
         await status_msg.edit_text(MESSAGES["error_ocr"])
+        return
+
+    if "error" in data:
+        if data["error"] == "not_receipt":
+            await status_msg.edit_text("This is not a receipt. Please send a KBZPay or WavePay receipt screenshot.")
+        else:
+            await status_msg.edit_text(MESSAGES["error_ocr"])
         return
 
     tx_id = str(data.get("transaction_id", ""))
     app = data.get("app", "Unknown")
     amount = data.get("amount", "Unknown")
     date = data.get("date", "Unknown")
+    sender = data.get("sender", "")
+    receiver = data.get("receiver", "")
     is_fake = data.get("is_fake", False)
     fake_reason = data.get("fake_reason", "")
 
@@ -51,22 +57,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(MESSAGES["error_ocr"])
         return
 
-    # Check Blacklist
+    alerts = []
+
     if is_blacklisted(tx_id):
-        await update.message.reply_text(MESSAGES["blacklist_alert"].format(id=tx_id))
+        alerts.append(MESSAGES["blacklist_alert"].format(id=tx_id))
     
-    # Check Duplicate
     if is_duplicate(tx_id):
-        await update.message.reply_text(MESSAGES["duplicate_alert"].format(id=tx_id))
+        alerts.append(MESSAGES["duplicate_alert"].format(id=tx_id))
     else:
         add_receipt(tx_id, user_id, amount, date)
 
-    # Fake Detection Alert
     response_text = MESSAGES["success"].format(app=app, id=tx_id, amount=amount, date=date)
-    if is_fake:
-        response_text += f"\n\n⚠️ **သတိပေးချက် - ဤပြေစာသည် အတုဖြစ်နိုင်ခြေရှိပါသည်။**\nအကြောင်းပြချက်: {fake_reason}"
     
-    await status_msg.edit_text(response_text, parse_mode="Markdown")
+    if sender:
+        response_text += f"\n👤 Sender: {sender}"
+    if receiver:
+        response_text += f"\n👤 Receiver: {receiver}"
+
+    if is_fake:
+        response_text += f"\n\n⚠️ WARNING - This receipt may be FAKE.\nReason: {fake_reason}"
+    else:
+        response_text += "\n\n✅ Receipt format appears normal."
+    
+    if alerts:
+        response_text += "\n\n" + "\n".join(alerts)
+
+    await status_msg.edit_text(response_text)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -74,8 +90,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     s = get_stats()
-    text = f"📊 **Bot စာရင်းများ**\n\nစုစုပေါင်းပြေစာ: {s['total_receipts']}\nBlacklist အရေအတွက်: {s['total_blacklist']}"
-    await update.message.reply_text(text, parse_mode="Markdown")
+    text = f"📊 Bot Stats\n\nTotal Receipts: {s['total_receipts']}\nBlacklist Count: {s['total_blacklist']}"
+    await update.message.reply_text(text)
 
 async def blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -83,14 +99,14 @@ async def blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("အသုံးပြုပုံ: /blacklist <ID>")
+        await update.message.reply_text("Usage: /blacklist <Transaction ID>")
         return
     
     target_id = context.args[0]
     if add_to_blacklist(target_id, update.effective_user.id):
         await update.message.reply_text(MESSAGES["blacklist_added"].format(id=target_id))
     else:
-        await update.message.reply_text("ဤ ID သည် Blacklist ထဲတွင် ရှိနှင့်ပြီးသားပါ။")
+        await update.message.reply_text("This ID is already in the Blacklist.")
 
 async def unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -98,23 +114,20 @@ async def unblacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("အသုံးပြုပုံ: /unblacklist <ID>")
+        await update.message.reply_text("Usage: /unblacklist <Transaction ID>")
         return
     
     target_id = context.args[0]
     if remove_from_blacklist(target_id):
         await update.message.reply_text(MESSAGES["blacklist_removed"].format(id=target_id))
     else:
-        await update.message.reply_text("ဤ ID ကို ရှာမတွေ့ပါ။")
+        await update.message.reply_text("ID not found.")
 
 if __name__ == '__main__':
-    # Initialize Database
     init_db()
     
-    # Build Bot
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Add Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))

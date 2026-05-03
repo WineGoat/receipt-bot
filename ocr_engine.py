@@ -5,7 +5,7 @@ from config import GEMINI_API_KEY
 
 def process_receipt_image(image_path):
     """
-    Processes the receipt image using Gemini 2.5 Flash API.
+    Processes the receipt image using Gemini API.
     Returns a dictionary with extracted data or None if failed.
     """
     if not GEMINI_API_KEY:
@@ -20,21 +20,37 @@ def process_receipt_image(image_path):
         with open(image_path, "rb") as image_file:
             base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
-        prompt = """
-        Analyze this Myanmar mobile payment receipt (KBZPay or WavePay).
-        Extract the following information in JSON format:
-        - app: "KBZPay" or "WavePay"
-        - transaction_id: The unique transaction ID number
-        - amount: The payment amount with currency (e.g., "10,000 Ks")
-        - date: The transaction date and time
-        - is_fake: Boolean, true if you detect common fake patterns (inconsistent fonts, edited areas)
-        - fake_reason: String, reason if is_fake is true
+        prompt = """You are a Myanmar mobile payment receipt analyzer. 
+Analyze this image carefully. It should be a KBZPay or WavePay payment receipt/screenshot from Myanmar.
 
-        Respond ONLY with the JSON object.
-        """
+If this is NOT a payment receipt (e.g., it's a random image, meme, or unrelated photo), respond with:
+{"error": "not_receipt"}
+
+If this IS a payment receipt, extract the following information and respond in JSON format:
+{
+    "app": "KBZPay" or "WavePay" (determine from the receipt design/logo),
+    "transaction_id": "the transaction number/ID shown on receipt",
+    "amount": "the payment amount with Ks (e.g., 36,000 Ks)",
+    "date": "transaction date and time",
+    "sender": "sender name if visible",
+    "receiver": "receiver name if visible",
+    "is_fake": true or false,
+    "fake_reason": "reason if fake, empty string if not fake"
+}
+
+To detect FAKE receipts, check for:
+- Inconsistent fonts or text alignment
+- Unusual spacing between elements
+- Blurry or pixelated text while other parts are clear
+- Wrong format for KBZPay/WavePay receipts
+- Transaction ID format doesn't match standard patterns
+- KBZPay transaction IDs are typically 16-20 digits
+- WavePay transaction IDs typically start with specific prefixes
+
+Respond ONLY with the JSON object, nothing else."""
 
         response = client.chat.completions.create(
-            model="gemini-2.0-flash", # Using the latest flash model
+            model="gemini-2.0-flash",
             messages=[
                 {
                     "role": "user",
@@ -47,12 +63,21 @@ def process_receipt_image(image_path):
                     ],
                 }
             ],
-            response_format={"type": "json_object"}
         )
 
-        result = json.loads(response.choices[0].message.content)
+        response_text = response.choices[0].message.content.strip()
+        
+        # Try to extract JSON from the response
+        if response_text.startswith("```"):
+            # Remove markdown code blocks
+            response_text = response_text.replace("```json", "").replace("```", "").strip()
+        
+        result = json.loads(response_text)
         return result
 
+    except json.JSONDecodeError as e:
+        print(f"JSON Parse Error: {e}, Response: {response_text}")
+        return None
     except Exception as e:
         print(f"OCR Error: {e}")
         return None
